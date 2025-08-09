@@ -83,18 +83,30 @@ h1 { font-weight: 700; margin: 16px 0 20px; }
 
 #mobile-controls { display: none; gap: 10px; }
 #mobile-controls button {
-  font-size: 22px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 0;
+  font-size: 24px;
+  padding: 14px 22px;
+  border-radius: 12px;
+  border: 2px solid #3a3a3a;
   background: #222;
   color: #fff;
+  min-width: 64px;
+}
+#mobile-controls button[data-role="left"],
+#mobile-controls button[data-role="right"] {
+  min-width: 88px;
+  border-color: #4a4a8a;
+}
+#mobile-controls button[data-role="select"] {
+  background: #1f8b4c;
+  border-color: #2bb36b;
 }
 
 @media (max-width: 768px) {
   #mobile-controls { display: inline-flex; flex-wrap: wrap; justify-content: center; }
   #play-area { grid-template-columns: 1fr; }
-  .timer-box { order: -1; width: 180px; margin: 0 auto; }
+  /* show only one timer on mobile */
+  #play-area .timer-box:last-child { display: none; }
+  .timer-box { width: 200px; margin: 0 auto; }
 }
 
 /* Overlay for level transition messages */

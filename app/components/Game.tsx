@@ -481,10 +481,9 @@ export default function Game() {
         <div className={`timer-box ${timerClass} ${isTimerFlashing ? 'flash' : ''}`} aria-label="time left">{formatTime(remainingSeconds)}</div>
       </div>
       <div id="mobile-controls">
-        <button onClick={moveLeft} aria-label="Move left">←</button>
-        <button onClick={moveUp} aria-label="Move up">↑</button>
-        <button onClick={moveRight} aria-label="Move right">→</button>
-        <button onClick={selectCell} aria-label="Select">✔</button>
+        <button data-role="left" onClick={moveLeft} aria-label="Move left">←</button>
+        <button data-role="right" onClick={moveRight} aria-label="Move right">→</button>
+        <button data-role="select" onClick={selectCell} aria-label="Select">✔</button>
       </div>
       <p id="status" className="subtle">{statusText}</p>
       <p id="score" className="subtle">Score: {score}</p>
