@@ -1,0 +1,86 @@
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #111;
+  color: #fff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+#game-container { text-align: center; width: 100%; padding: 12px; }
+
+h1 { font-weight: 700; margin: 16px 0 20px; }
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(2, 80px);
+  grid-auto-rows: 80px;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.cell {
+  background: #222;
+  border: 2px solid #333;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  width: 80px;
+  height: 80px;
+}
+
+.cell.active { border-color: #ffd54a; }
+.cell.safe   { background: #1f8b4c; border-color: #2bb36b; }
+.cell.wrong  { background: #b21f1f; border-color: #ff4747; }
+
+#status { min-height: 24px; margin: 6px 0 4px; }
+
+#mobile-controls { display: none; gap: 10px; }
+#mobile-controls button {
+  font-size: 22px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 0;
+  background: #222;
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  #mobile-controls { display: inline-flex; flex-wrap: wrap; justify-content: center; }
+}
+
+/* Overlay for level transition messages */
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.75);
+  z-index: 10;
+  font-size: 28px;
+  font-weight: 700;
+  text-align: center;
+  padding: 20px;
+  white-space: pre-line !important;
+}
+#overlay.show { display: flex; }
+
+.subtle { opacity: 0.8; font-weight: 500; font-size: 16px; margin-top: 6px; }
+
+
