@@ -289,11 +289,9 @@ export default function Game() {
   return (
     <div id="game-container">
       <div id="overlay" className={overlayVisible ? 'show' : ''}>
-        {overlayMessage.split('\n').map((line, i) => (
-          <div key={i}>{line}</div>
-        ))}
+        <div className="overlay-text">{overlayMessage}</div>
       </div>
-      <h1>Brain Train</h1>
+      <h1>Brain Train - Memory Challenge</h1>
       <div id="grid" style={gridTemplateColumnsStyle}>
         {rows}
       </div>
