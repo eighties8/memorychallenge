@@ -49,6 +49,8 @@ const TIME_CRUNCH = [
 type WrongFlash = { row: number; col: number } | null;
 type RainbowCell = { row: number; col: number; color: string } | null;
 
+type HapticKind = "success" | "error" | "timeout" | "level";
+
 export default function Game() {
   const [currentLevel, setCurrentLevel] = useState(1);
   const [cols, setCols] = useState(BASE_COLS);
@@ -94,6 +96,37 @@ export default function Game() {
     return instance;
   }, []);
 
+  // Haptics (Android + some devices). iOS Safari doesn't support navigator.vibrate.
+  const canHaptic = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    // Respect reduced motion
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      if (mq.matches) return false;
+    }
+    return typeof navigator.vibrate === 'function';
+  }, []);
+
+  const triggerHaptic = useCallback((kind: HapticKind) => {
+    if (!canHaptic) return;
+    try {
+      switch (kind) {
+        case 'success':
+          navigator.vibrate?.([10, 20, 10]);
+          break;
+        case 'error':
+          navigator.vibrate?.(50);
+          break;
+        case 'timeout':
+          navigator.vibrate?.([80, 60, 80]);
+          break;
+        case 'level':
+          navigator.vibrate?.([20, 30, 20, 30]);
+          break;
+      }
+    } catch {}
+  }, [canHaptic]);
+
   const gridTemplateColumnsStyle = useMemo(
     () => ({ gridTemplateColumns: `repeat(${cols}, 80px)` }),
     [cols]
@@ -128,6 +161,7 @@ export default function Game() {
           setIsTimePenalty(true);
           setIsTimerFlashing(true);
           setStatusText("Time's up! Resetting...");
+          triggerHaptic('timeout');
           // Pause for 3 seconds while flashing, then reset to same pattern and restart timer
           setTimeout(() => {
             setIsTimerFlashing(false);
@@ -139,7 +173,7 @@ export default function Game() {
         return prev - 1;
       });
     }, 1000);
-  }, [clearTimer]);
+  }, [clearTimer, triggerHaptic]);
 
   const startLevel = useCallback((newPattern = true) => {
     const nextCols = BASE_COLS + Math.floor((currentLevel - 1) / 5);
@@ -322,6 +356,7 @@ export default function Game() {
         setStartRowSafeCol(activeCol);
       }
 
+      triggerHaptic('success');
       playCorrectSound();
       setVisitedSafe((prev) => new Set(prev).add(key));
       const nextRow = activeRow - 1;
@@ -337,6 +372,7 @@ export default function Game() {
         setStatusText(`+${gained} pts${flawless ? ' (Flawless!)' : ''}`);
         // Stop timer during transition
         clearTimer();
+        triggerHaptic('level');
         // Play short victory melody alongside blinking
         playLevelCompleteMelody();
         // Flash green tiles on/off for 2 seconds, then proceed
@@ -388,6 +424,7 @@ export default function Game() {
       }
       setActiveRow(nextRow);
     } else {
+      triggerHaptic('error');
       playWrongSound();
       setMistakesInLevel((m) => m + 1);
       setWrongFlash({ row: activeRow, col: activeCol });
@@ -397,7 +434,7 @@ export default function Game() {
         resetLevelSamePattern();
       }, 320);
     }
-  }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked]);
+  }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked, triggerHaptic]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
