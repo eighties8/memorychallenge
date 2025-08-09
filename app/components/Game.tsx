@@ -365,7 +365,7 @@ export default function Game() {
         const nextLevel = justCleared + 1;
         const flawless = mistakesInLevel === 0;
         const encouragement = chooseEncouragement(mistakesInLevel);
-        const timeCrunch = remainingSeconds < 5;
+        const timeCrunch = remainingSeconds <= 5;
         const headline = timeCrunch ? chooseTimeCrunch() : encouragement;
         const gained = 100 + justCleared * 10 + (flawless ? 200 : 0);
         setScore((s) => s + gained);
@@ -430,18 +430,22 @@ export default function Game() {
       setWrongFlash({ row: activeRow, col: activeCol });
       setTimeout(() => setWrongFlash(null), 300);
       setTimeout(() => {
-        // Wrong guess resets position but NOT timer
-        resetLevelSamePattern();
+        if (activeRow !== ROWS - 1) {
+          // For rows above the first, reset to the start of the same pattern
+          resetLevelSamePattern();
+        }
+        // If on the first row, do nothing so the cursor stays where the player left it
       }, 320);
     }
   }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked, triggerHaptic]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') moveLeft();
-      else if (e.key === 'ArrowRight') moveRight();
-      else if (e.key === 'ArrowUp') moveUp();
-      else if (e.key === ' ' || e.key === 'Enter') selectCell();
+      const key = e.key;
+      if (key === 'ArrowLeft' || key === 'a' || key === 'A') moveLeft();
+      else if (key === 'ArrowRight' || key === 'd' || key === 'D') moveRight();
+      else if (key === 'ArrowUp') moveUp();
+      else if (key === ' ' || key === 'Enter' || key === 'w' || key === 'W') selectCell();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

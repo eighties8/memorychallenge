@@ -26,7 +26,7 @@ h1 { font-weight: 700; margin: 16px 0 20px; }
   display: grid;
   grid-template-columns: 120px auto 120px;
   align-items: center;
-  gap: 16px;
+  gap: 32px;
   justify-content: center;
   margin: 0 auto 16px;
   width: min(100%, 700px);
@@ -41,16 +41,17 @@ h1 { font-weight: 700; margin: 16px 0 20px; }
   letter-spacing: 1px;
   font-size: 22px;
   text-align: center;
-  color: #9fe6a0; /* default close to green */
+  color: #fff;
   min-width: 100px;
 }
-.timer-box.ok { color: #9fe6a0; border-color: #2c5030; }
-.timer-box.warn { color: #ffd54a; border-color: #5a4a1f; }
-.timer-box.danger { color: #ff6b6b; border-color: #5a2121; }
+/* background colors by state */
+.timer-box.ok { background: #245b2a; border-color: #2c5030; }
+.timer-box.warn { background: #7a611e; border-color: #5a4a1f; }
+.timer-box.danger { background: #6b2424; border-color: #5a2121; }
 
 @keyframes flashPulse {
   0%, 100% { transform: scale(1); filter: brightness(1); }
-  50% { transform: scale(1.05); filter: brightness(1.5); }
+  50% { transform: scale(1.05); filter: brightness(1.4); }
 }
 .timer-box.flash { animation: flashPulse 0.6s ease-in-out infinite; }
 
@@ -101,12 +102,18 @@ h1 { font-weight: 700; margin: 16px 0 20px; }
   border-color: #2bb36b;
 }
 
+/* Desktop sizing */
+@media (min-width: 769px) {
+  .timer-box { font-size: 28px; padding: 18px 14px; min-width: 140px; }
+  #play-area { grid-template-columns: 160px auto 160px; gap: 48px; width: min(100%, 800px); }
+}
+
 @media (max-width: 768px) {
   #mobile-controls { display: inline-flex; flex-wrap: wrap; justify-content: center; }
   #play-area { grid-template-columns: 1fr; }
   /* show only one timer on mobile */
   #play-area .timer-box:last-child { display: none; }
-  .timer-box { width: 200px; margin: 0 auto; }
+  .timer-box { width: 200px; margin: 0 auto; font-size: 22px; }
 }
 
 /* Overlay for level transition messages */
