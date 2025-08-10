@@ -47,9 +47,7 @@ const TIME_CRUNCH = [
 ] as const;
 
 type WrongFlash = { row: number; col: number } | null;
-type RainbowCell = { row: number; col: number; color: string } | null;
-
-type HapticKind = "success" | "error" | "timeout" | "level";
+type CelebrationCell = { row: number; col: number; color: string } | null;
 
 export default function Game() {
   const [currentLevel, setCurrentLevel] = useState(1);
@@ -59,7 +57,7 @@ export default function Game() {
   const [safePath, setSafePath] = useState<Set<string>>(() => new Set());
   const [visitedSafe, setVisitedSafe] = useState<Set<string>>(() => new Set());
   const [wrongFlash, setWrongFlash] = useState<WrongFlash>(null);
-  const [rainbowCells, setRainbowCells] = useState<RainbowCell[]>([]);
+  const [celebrationCells, setCelebrationCells] = useState<CelebrationCell[]>([]);
   const [statusText, setStatusText] = useState('');
   const [overlayLines, setOverlayLines] = useState<string[]>([]);
   const [overlayFlawless, setOverlayFlawless] = useState(false);
@@ -69,11 +67,19 @@ export default function Game() {
   // Remember the safe column on the starting (bottom) row after it is first selected
   const [startRowSafeCol, setStartRowSafeCol] = useState<number | null>(null);
 
+  // Mobile detection - use ref for immediate access, state for re-renders
+  const isMobileRef = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileDetected, setIsMobileDetected] = useState(false);
+
   // Timer
   const [remainingSeconds, setRemainingSeconds] = useState<number>(LEVEL_SECONDS);
   const timerRef = useRef<number | null>(null);
   const [isTimePenalty, setIsTimePenalty] = useState(false);
   const [isTimerFlashing, setIsTimerFlashing] = useState(false);
+
+  // First row highlighting for mobile - only on level start or timer expiration
+  const [isFirstRowHighlighted, setIsFirstRowHighlighted] = useState(false);
 
   // Shared audio context (created on first user gesture)
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -96,36 +102,7 @@ export default function Game() {
     return instance;
   }, []);
 
-  // Haptics (Android + some devices). iOS Safari doesn't support navigator.vibrate.
-  const canHaptic = useMemo(() => {
-    if (typeof navigator === 'undefined') return false;
-    // Respect reduced motion
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-      if (mq.matches) return false;
-    }
-    return typeof navigator.vibrate === 'function';
-  }, []);
 
-  const triggerHaptic = useCallback((kind: HapticKind) => {
-    if (!canHaptic) return;
-    try {
-      switch (kind) {
-        case 'success':
-          navigator.vibrate?.([10, 20, 10]);
-          break;
-        case 'error':
-          navigator.vibrate?.(50);
-          break;
-        case 'timeout':
-          navigator.vibrate?.([80, 60, 80]);
-          break;
-        case 'level':
-          navigator.vibrate?.([20, 30, 20, 30]);
-          break;
-      }
-    } catch {}
-  }, [canHaptic]);
 
   const gridTemplateColumnsStyle = useMemo(
     () => ({ gridTemplateColumns: `repeat(${cols}, 80px)` }),
@@ -161,19 +138,27 @@ export default function Game() {
           setIsTimePenalty(true);
           setIsTimerFlashing(true);
           setStatusText("Time's up! Resetting...");
-          triggerHaptic('timeout');
           // Pause for 3 seconds while flashing, then reset to same pattern and restart timer
           setTimeout(() => {
             setIsTimerFlashing(false);
             resetLevelSamePattern();
             startLevelTimer(LEVEL_SECONDS);
+            
+            // Highlight first row on mobile for timer expiration
+            if (isMobileRef.current) {
+              setIsFirstRowHighlighted(true);
+              // Flash the first row 3 times over 1.5 seconds
+              setTimeout(() => setIsFirstRowHighlighted(false), 500);
+              setTimeout(() => setIsFirstRowHighlighted(true), 1000);
+              setTimeout(() => setIsFirstRowHighlighted(false), 1500);
+            }
           }, 3000);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-  }, [clearTimer, triggerHaptic]);
+  }, [clearTimer]);
 
   const startLevel = useCallback((newPattern = true) => {
     const nextCols = BASE_COLS + Math.floor((currentLevel - 1) / 5);
@@ -182,17 +167,43 @@ export default function Game() {
       setSafePath(generatePath(nextCols));
       setVisitedSafe(new Set());
     }
-    setRainbowCells([]);
+    setCelebrationCells([]);
     setActiveRow(ROWS - 1);
     setActiveCol(0);
     setMistakesInLevel(0);
     setStartRowSafeCol(null); // new pattern: forget previous start-row safe
     startLevelTimer(LEVEL_SECONDS);
+    
+    // Highlight first row on mobile for level start
+    if (isMobileRef.current) {
+      setIsFirstRowHighlighted(true);
+      // Flash the first row 3 times over 1.5 seconds
+      setTimeout(() => setIsFirstRowHighlighted(false), 500);
+      setTimeout(() => setIsFirstRowHighlighted(true), 1000);
+      setTimeout(() => setIsFirstRowHighlighted(false), 1500);
+    }
   }, [currentLevel, generatePath, startLevelTimer]);
 
   useEffect(() => {
-    // initial
-    startLevel(true);
+    // Mobile detection
+    const checkMobile = () => {
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                             (window.innerWidth <= 768) ||
+                             ('ontouchstart' in window);
+      console.log('Mobile detection:', {
+        userAgent: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+        width: window.innerWidth,
+        hasTouch: 'ontouchstart' in window,
+        isMobile: isMobileDevice
+      });
+      isMobileRef.current = isMobileDevice;
+      setIsMobile(isMobileDevice);
+      setIsMobileDetected(true);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
     // Prepare audio on first interaction
     const handleFirstInteraction = () => {
       getAudioContext();
@@ -202,12 +213,19 @@ export default function Game() {
     window.addEventListener('pointerdown', handleFirstInteraction);
     window.addEventListener('keydown', handleFirstInteraction);
     return () => {
+      window.removeEventListener('resize', checkMobile);
       window.removeEventListener('pointerdown', handleFirstInteraction);
       window.removeEventListener('keydown', handleFirstInteraction);
       clearTimer();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Start the first level immediately after mobile detection
+  useEffect(() => {
+    console.log('Starting first level with isMobile:', isMobileRef.current);
+    startLevel(true);
+  }, []); // Only run once on mount
 
   const chooseEncouragement = useCallback((mistakes: number): string => {
     if (mistakes <= 0) {
@@ -339,11 +357,13 @@ export default function Game() {
   const resetLevelSamePattern = useCallback(() => {
     setVisitedSafe(new Set());
     setWrongFlash(null);
-    setRainbowCells([]);
+    setCelebrationCells([]);
     setActiveRow(ROWS - 1);
     setActiveCol((prev) => (startRowSafeCol !== null ? startRowSafeCol : 0));
     // keep mistakesInLevel as-is (still same level)
-  }, [startRowSafeCol]);
+    
+
+  }, [startRowSafeCol, isMobile]);
 
   const selectCell = useCallback(() => {
     if (inputLocked) return;
@@ -356,7 +376,6 @@ export default function Game() {
         setStartRowSafeCol(activeCol);
       }
 
-      triggerHaptic('success');
       playCorrectSound();
       setVisitedSafe((prev) => new Set(prev).add(key));
       const nextRow = activeRow - 1;
@@ -372,11 +391,10 @@ export default function Game() {
         setStatusText(`+${gained} pts${flawless ? ' (Flawless!)' : ''}`);
         // Stop timer during transition
         clearTimer();
-        triggerHaptic('level');
         // Play short victory melody alongside blinking
         playLevelCompleteMelody();
         // Flash green tiles on/off for 2 seconds, then proceed
-        const greenTiles: RainbowCell[] = [];
+        const greenTiles: CelebrationCell[] = [];
         for (let r = 0; r < ROWS; r++) {
           for (let c = 0; c < cols; c++) {
             const k = `${r}-${c}`;
@@ -386,17 +404,17 @@ export default function Game() {
           }
         }
         let on = true;
-        setRainbowCells(greenTiles);
+        setCelebrationCells(greenTiles);
         const intervalMs = 200;
         const totalMs = 2000;
         let elapsed = 0;
         const iv = setInterval(() => {
           on = !on;
-          setRainbowCells(on ? greenTiles : []);
+          setCelebrationCells(on ? greenTiles : []);
           elapsed += intervalMs;
           if (elapsed >= totalMs) {
             clearInterval(iv);
-            setRainbowCells([]);
+            setCelebrationCells([]);
             setOverlayLines([
               headline,
               `Level ${justCleared} Passed!`,
@@ -404,6 +422,8 @@ export default function Game() {
             ]);
             setOverlayFlawless(flawless);
             setOverlayVisible(true);
+            // Clear first row highlighting when level is completed
+            setIsFirstRowHighlighted(false);
             setTimeout(() => {
               setOverlayVisible(false);
               setStatusText('');
@@ -424,10 +444,11 @@ export default function Game() {
       }
       setActiveRow(nextRow);
     } else {
-      triggerHaptic('error');
       playWrongSound();
       setMistakesInLevel((m) => m + 1);
       setWrongFlash({ row: activeRow, col: activeCol });
+      // Clear first row highlighting when wrong tile is selected
+      setIsFirstRowHighlighted(false);
       setTimeout(() => setWrongFlash(null), 300);
       setTimeout(() => {
         if (activeRow !== ROWS - 1) {
@@ -437,9 +458,12 @@ export default function Game() {
         // If on the first row, do nothing so the cursor stays where the player left it
       }, 320);
     }
-  }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked, triggerHaptic]);
+  }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked]);
 
+  // Desktop keyboard controls (only active when not on mobile)
   useEffect(() => {
+    if (isMobile) return; // Skip keyboard controls on mobile
+    
     const onKey = (e: KeyboardEvent) => {
       const key = e.key;
       if (key === 'ArrowLeft' || key === 'a' || key === 'A') moveLeft();
@@ -449,7 +473,7 @@ export default function Game() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [moveLeft, moveRight, moveUp, selectCell]);
+  }, [isMobile, moveLeft, moveRight, moveUp, selectCell]);
 
   const formatTime = (s: number) => {
     const mm = Math.floor(s / 60).toString().padStart(2, '0');
@@ -463,28 +487,143 @@ export default function Game() {
     return 'ok';
   }, [remainingSeconds]);
 
+  // Optimized mobile touch handler - created once, not recreated on every render
+  const handleMobileTouch = useCallback((rowIndex: number, colIndex: number) => {
+    if (!isMobile || inputLocked) return;
+    
+    // Only allow interaction with tiles on the active row
+    if (rowIndex !== activeRow) return;
+    
+    // Mobile-specific selection - select the specific tile that was touched
+    const key = `${rowIndex}-${colIndex}`;
+    const isSafe = safePath.has(key);
+    
+    if (isSafe) {
+      // If selecting the safe cell on the starting (bottom) row, remember its column for future resets
+      if (rowIndex === ROWS - 1) {
+        setStartRowSafeCol(colIndex);
+      }
+      
+      playCorrectSound();
+      setVisitedSafe((prev) => new Set(prev).add(key));
+      const nextRow = rowIndex - 1;
+      if (nextRow < 0) {
+        // Level completed logic
+        const justCleared = currentLevel;
+        const nextLevel = justCleared + 1;
+        const flawless = mistakesInLevel === 0;
+        const encouragement = chooseEncouragement(mistakesInLevel);
+        const timeCrunch = remainingSeconds <= 5;
+        const headline = timeCrunch ? chooseTimeCrunch() : encouragement;
+        const gained = 100 + justCleared * 10 + (flawless ? 200 : 0);
+        setScore((s) => s + gained);
+        setStatusText(`+${gained} pts${flawless ? ' (Flawless!)' : ''}`);
+        clearTimer();
+        playLevelCompleteMelody();
+        
+        // Flash green tiles logic
+        const greenTiles: CelebrationCell[] = [];
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < cols; c++) {
+            const k = `${r}-${c}`;
+            if (safePath.has(k)) {
+              greenTiles.push({ row: r, col: c, color: '#2bb36b' });
+            }
+          }
+        }
+        let on = true;
+        setCelebrationCells(greenTiles);
+        const intervalMs = 200;
+        const totalMs = 2000;
+        let elapsed = 0;
+        const iv = setInterval(() => {
+          on = !on;
+          setCelebrationCells(on ? greenTiles : []);
+          elapsed += intervalMs;
+          if (elapsed >= totalMs) {
+            clearInterval(iv);
+            setCelebrationCells([]);
+            setOverlayLines([
+              headline,
+              `Level ${justCleared} Passed!`,
+              `Prepare for Level ${nextLevel}!`,
+            ]);
+            setOverlayFlawless(flawless);
+            setOverlayVisible(true);
+            // Clear first row highlighting when level is completed
+            setIsFirstRowHighlighted(false);
+            setTimeout(() => {
+              setOverlayVisible(false);
+              setStatusText('');
+              setCurrentLevel(nextLevel);
+              const nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
+              setCols(nextCols);
+              setSafePath(generatePath(nextCols));
+              setVisitedSafe(new Set());
+              setActiveRow(ROWS - 1);
+              setActiveCol(0);
+              setMistakesInLevel(0);
+              setStartRowSafeCol(null);
+              startLevelTimer(LEVEL_SECONDS);
+            }, 1100);
+          }
+        }, intervalMs);
+        return;
+      }
+      setActiveRow(nextRow);
+    } else {
+      // Wrong tile selected
+      playWrongSound();
+      setMistakesInLevel((m) => m + 1);
+      setWrongFlash({ row: rowIndex, col: colIndex });
+      // Clear first row highlighting when wrong tile is selected
+      setIsFirstRowHighlighted(false);
+      setTimeout(() => setWrongFlash(null), 300);
+      setTimeout(() => {
+        if (rowIndex !== ROWS - 1) {
+          resetLevelSamePattern();
+        }
+      }, 320);
+    }
+  }, [isMobile, inputLocked, activeRow, safePath, setStartRowSafeCol, playCorrectSound, setVisitedSafe, currentLevel, mistakesInLevel, chooseEncouragement, remainingSeconds, chooseTimeCrunch, setScore, setStatusText, clearTimer, playLevelCompleteMelody, cols, setCelebrationCells, setOverlayLines, setOverlayFlawless, setOverlayVisible, setCurrentLevel, setCols, setSafePath, setActiveRow, setActiveCol, setMistakesInLevel, startLevelTimer, playWrongSound, setWrongFlash, resetLevelSamePattern]);
+
   const renderCell = (rowIndex: number, colIndex: number) => {
     const key = `${rowIndex}-${colIndex}`;
     const isActive = activeRow === rowIndex && activeCol === colIndex;
     const isVisitedSafe = visitedSafe.has(key);
     const isWrong = wrongFlash && wrongFlash.row === rowIndex && wrongFlash.col === colIndex;
-    const rainbowCell = rainbowCells.find(cell => cell?.row === rowIndex && cell?.col === colIndex);
+    const celebrationCell = celebrationCells.find(cell => cell?.row === rowIndex && cell?.col === colIndex);
 
     const classNames = [
       'cell',
-      isActive ? 'active' : '',
+      // Only show active styling on desktop (not on mobile)
+      isActive && !isMobile ? 'active' : '',
       isVisitedSafe ? 'safe' : '',
       isWrong ? 'wrong' : '',
+      // First row highlighting for mobile (bottom row where player starts)
+      isMobile && isFirstRowHighlighted && rowIndex === ROWS - 1 ? 'first-row-highlight' : '',
     ]
       .filter(Boolean)
       .join(' ');
+    
 
-    const style = rainbowCell ? {
-      background: rainbowCell.color,
-      borderColor: rainbowCell.color,
-      boxShadow: `0 0 20px ${rainbowCell.color}`,
+    
+
+
+    const baseStyle = {
+      cursor: isMobile ? 'default' : (isActive ? 'pointer' : 'default'),
+    };
+
+    // Apply celebration cell styling
+    const style = celebrationCell ? {
+      ...baseStyle,
+      background: celebrationCell.color,
+      borderColor: celebrationCell.color,
+      boxShadow: `0 0 20px ${celebrationCell.color}`,
       transition: 'all 0.3s ease'
-    } : {};
+    } : baseStyle;
+
+
 
     return (
       <div
@@ -492,16 +631,35 @@ export default function Game() {
         className={classNames}
         data-row={rowIndex}
         data-col={colIndex}
+
         style={style}
+        onClick={isMobile ? () => handleMobileTouch(rowIndex, colIndex) : undefined}
+        role={isMobile ? "button" : undefined}
+        tabIndex={isMobile ? 0 : undefined}
+        aria-label={isMobile ? `Cell at row ${rowIndex + 1}, column ${colIndex + 1}` : undefined}
       />
     );
   };
 
-  const rows = [];
-  for (let r = 0; r < ROWS; r += 1) {
-    for (let c = 0; c < cols; c += 1) {
-      rows.push(renderCell(r, c));
+  // Memoize the grid rows to prevent unnecessary re-renders
+  const rows = useMemo(() => {
+    const gridRows = [];
+    for (let r = 0; r < ROWS; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        gridRows.push(renderCell(r, c));
+      }
     }
+    return gridRows;
+  }, [renderCell, cols]);
+
+  // Show loading screen until mobile detection is complete
+  if (!isMobileDetected) {
+    return (
+      <div id="game-container">
+        <h1>Mind Tile - Memory Challenge</h1>
+        <p className="mobile-instructions loading">Detecting device type...</p>
+      </div>
+    );
   }
 
   return (
@@ -513,7 +671,13 @@ export default function Game() {
           ))}
         </div>
       </div>
-      <h1>Brain Train - Memory Challenge</h1>
+      <h1>Mind Tile - Memory Challenge</h1>
+      {/* Mobile-specific instructions */}
+      {isMobile && (
+        <p className="mobile-instructions">
+          Tap any cell on the active row to select it as your choice.
+        </p>
+      )}
       <div id="play-area">
         <div className={`timer-box ${timerClass} ${isTimerFlashing ? 'flash' : ''}`} aria-label="time left">{formatTime(remainingSeconds)}</div>
         <div id="grid" style={gridTemplateColumnsStyle}>
@@ -521,11 +685,7 @@ export default function Game() {
         </div>
         <div className={`timer-box ${timerClass} ${isTimerFlashing ? 'flash' : ''}`} aria-label="time left">{formatTime(remainingSeconds)}</div>
       </div>
-      <div id="mobile-controls">
-        <button data-role="left" onClick={moveLeft} aria-label="Move left">←</button>
-        <button data-role="right" onClick={moveRight} aria-label="Move right">→</button>
-        <button data-role="select" onClick={selectCell} aria-label="Select">✔</button>
-      </div>
+
       <p id="status" className="subtle">{statusText}</p>
       <p id="score" className="subtle">Score: {score}</p>
     </div>

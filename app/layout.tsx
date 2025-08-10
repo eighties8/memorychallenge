@@ -2,7 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Brain Train',
+  title: 'Mind Tile Game',
   description: 'A fast, lightweight memory training game built with Next.js and React',
 };
 
