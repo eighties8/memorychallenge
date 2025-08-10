@@ -3,9 +3,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const BASE_ROWS = 5;
-const BASE_COLS = 2;
+const BASE_COLS = 3;
 const LEVEL_SECONDS = 30;
 const MOBILE_MAX_COLS = 4; // Maximum columns for mobile before adding rows
+const MOBILE_MAX_ROWS = 5; // Maximum rows for mobile
+
+// Calculate time limit based on level progression
+const calculateTimeLimit = (level: number, isMobile: boolean): number => {
+  if (!isMobile) {
+    // Desktop: keep 30 seconds for all levels
+    return LEVEL_SECONDS;
+  }
+  
+  // Mobile: calculate max grid size (4 cols × 5 rows = 20 tiles)
+  const maxGridSize = MOBILE_MAX_COLS * MOBILE_MAX_ROWS;
+  const maxLevelForGrid = Math.floor((maxGridSize - BASE_COLS * BASE_ROWS) / 5) + 1;
+  
+  if (level <= maxLevelForGrid) {
+    // Still expanding grid: keep 30 seconds
+    return LEVEL_SECONDS;
+  }
+  
+  // Grid is maxed out: reduce time progressively
+  const levelsAfterMax = level - maxLevelForGrid;
+  const timeReduction = Math.floor(levelsAfterMax / 5) * 5; // Reduce by 5 seconds every 5 levels
+  const newTime = Math.max(5, LEVEL_SECONDS - timeReduction); // Minimum 5 seconds
+  
+  return newTime;
+};
 
 const ENCOURAGEMENTS_FLAWLESS = [
   "You're on a roll!",
@@ -83,6 +108,20 @@ export default function Game() {
   // First row highlighting for mobile - only on level start or timer expiration
   const [isFirstRowHighlighted, setIsFirstRowHighlighted] = useState(false);
 
+  // Pattern reveal feature - show safe tiles for 1 second at level start
+  const [showPatternReveal, setShowPatternReveal] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mindtile-pattern-reveal');
+      return saved !== null ? saved === 'true' : true; // Default to true
+    }
+    return true;
+  });
+  const [isPatternRevealed, setIsPatternRevealed] = useState(false);
+  const [isLevelCompleting, setIsLevelCompleting] = useState(false);
+  
+  // Immediate input blocking ref - prevents race conditions with rapid key presses
+  const isInputBlockedRef = useRef(false);
+
   // Shared audio context (created on first user gesture)
   const audioCtxRef = useRef<AudioContext | null>(null);
   const getAudioContext = useCallback((): AudioContext | null => {
@@ -103,6 +142,15 @@ export default function Game() {
     }
     return instance;
   }, []);
+
+  // Toggle pattern reveal setting and persist to localStorage
+  const togglePatternReveal = useCallback(() => {
+    const newValue = !showPatternReveal;
+    setShowPatternReveal(newValue);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mindtile-pattern-reveal', newValue.toString());
+    }
+  }, [showPatternReveal]);
 
 
 
@@ -146,8 +194,8 @@ export default function Game() {
             resetLevelSamePattern();
             startLevelTimer(LEVEL_SECONDS);
             
-            // Highlight first row on mobile for timer expiration
-            if (isMobileRef.current) {
+            // Highlight first row on mobile for timer expiration (only when pattern reveal is disabled)
+            if (isMobileRef.current && !showPatternReveal) {
               setIsFirstRowHighlighted(true);
               // Flash the first row 3 times over 1.5 seconds
               setTimeout(() => setIsFirstRowHighlighted(false), 500);
@@ -160,17 +208,17 @@ export default function Game() {
         return prev - 1;
       });
     }, 1000);
-  }, [clearTimer]);
+  }, [clearTimer, showPatternReveal]);
 
   const startLevel = useCallback((newPattern = true) => {
     let nextCols = BASE_COLS + Math.floor((currentLevel - 1) / 5);
     let nextRows = BASE_ROWS;
     
-    // Mobile-specific grid expansion: after 4 columns, add rows instead
+    // Mobile-specific grid expansion: after 4 columns, add rows instead (capped at 5 rows)
     if (isMobileRef.current && nextCols > MOBILE_MAX_COLS) {
       const extraLevels = nextCols - MOBILE_MAX_COLS;
       nextCols = MOBILE_MAX_COLS;
-      nextRows = BASE_ROWS + extraLevels;
+      nextRows = Math.min(MOBILE_MAX_ROWS, BASE_ROWS + extraLevels);
     }
     
     setCols(nextCols);
@@ -185,17 +233,32 @@ export default function Game() {
     setActiveCol(0);
     setMistakesInLevel(0);
     setStartRowSafeCol(null); // new pattern: forget previous start-row safe
-    startLevelTimer(LEVEL_SECONDS);
+    setIsLevelCompleting(false); // Reset level completion state
+    // Reset immediate input blocking for new level
+    isInputBlockedRef.current = false;
     
-    // Highlight first row on mobile for level start
-    if (isMobileRef.current) {
-      setIsFirstRowHighlighted(true);
-      // Flash the first row 3 times over 1.5 seconds
-      setTimeout(() => setIsFirstRowHighlighted(false), 500);
-      setTimeout(() => setIsFirstRowHighlighted(true), 1000);
-      setTimeout(() => setIsFirstRowHighlighted(false), 1500);
+    // Pattern reveal - show safe tiles for 0.5 seconds if enabled
+    if (showPatternReveal && newPattern) {
+      setIsPatternRevealed(true);
+      setTimeout(() => {
+        setIsPatternRevealed(false);
+        const timeLimit = calculateTimeLimit(currentLevel, isMobileRef.current);
+        startLevelTimer(timeLimit);
+      }, 500);
+    } else {
+      const timeLimit = calculateTimeLimit(currentLevel, isMobileRef.current);
+      startLevelTimer(timeLimit);
     }
-  }, [currentLevel, generatePath, startLevelTimer]);
+    
+                   // Highlight first row on mobile for level start (only when pattern reveal is disabled)
+               if (isMobileRef.current && !showPatternReveal) {
+                 setIsFirstRowHighlighted(true);
+                 // Flash the first row 3 times over 1.5 seconds
+                 setTimeout(() => setIsFirstRowHighlighted(false), 500);
+                 setTimeout(() => setIsFirstRowHighlighted(true), 1000);
+                 setTimeout(() => setIsFirstRowHighlighted(false), 1500);
+               }
+  }, [currentLevel, generatePath, startLevelTimer, showPatternReveal]);
 
   useEffect(() => {
     // Mobile detection
@@ -346,13 +409,25 @@ export default function Game() {
   const moveLeft = useCallback(() => {
     if (inputLocked) return;
     if (bottomSafeLocked) return; // keep cursor on known safe bottom cell until activated
-    setActiveCol((c) => Math.max(0, c - 1));
-  }, [inputLocked, bottomSafeLocked]);
+    setActiveCol((c) => {
+      if (c === 0) {
+        // Wrap to the last column of the current row
+        return cols - 1;
+      }
+      return c - 1;
+    });
+  }, [cols, inputLocked, bottomSafeLocked]);
 
   const moveRight = useCallback(() => {
     if (inputLocked) return;
     if (bottomSafeLocked) return; // keep cursor on known safe bottom cell until activated
-    setActiveCol((c) => Math.min(cols - 1, c + 1));
+    setActiveCol((c) => {
+      if (c === cols - 1) {
+        // Wrap to the first column of the current row
+        return 0;
+      }
+      return c + 1;
+    });
   }, [cols, inputLocked, bottomSafeLocked]);
 
   const moveUp = useCallback(() => {
@@ -367,6 +442,24 @@ export default function Game() {
     }
   }, [activeRow, inputLocked, safePath, visitedSafe]);
 
+  // Auto-scroll grid into view on mobile when active row changes
+  useEffect(() => {
+    if (!isMobile || !isMobileDetected) return;
+    
+    const gridElement = document.getElementById('grid');
+    if (!gridElement) return;
+    
+    // Find the active row element and scroll it into view
+    const activeRowElement = gridElement.querySelector(`[data-row="${activeRow}"]`);
+    if (activeRowElement) {
+      activeRowElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest'
+      });
+    }
+  }, [activeRow, isMobile, isMobileDetected]);
+
   const resetLevelSamePattern = useCallback(() => {
     setVisitedSafe(new Set());
     setWrongFlash(null);
@@ -379,7 +472,7 @@ export default function Game() {
   }, [startRowSafeCol, isMobile, numRows]);
 
   const selectCell = useCallback(() => {
-    if (inputLocked) return;
+    if (inputLocked || isLevelCompleting) return;
     const key = `${activeRow}-${activeCol}`;
     const isSafe = safePath.has(key);
 
@@ -406,6 +499,8 @@ export default function Game() {
         clearTimer();
         // Play short victory melody alongside blinking
         playLevelCompleteMelody();
+        // Block all input to prevent rapid key presses ONLY when level is completed
+        isInputBlockedRef.current = true;
         // Flash green tiles on/off for 2 seconds, then proceed
         const greenTiles: CelebrationCell[] = [];
         for (let r = 0; r < numRows; r++) {
@@ -444,11 +539,11 @@ export default function Game() {
               let nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
               let nextRows = BASE_ROWS;
               
-              // Mobile-specific grid expansion: after 4 columns, add rows instead
+              // Mobile-specific grid expansion: after 4 columns, add rows instead (capped at 5 rows)
               if (isMobileRef.current && nextCols > MOBILE_MAX_COLS) {
                 const extraLevels = nextCols - MOBILE_MAX_COLS;
                 nextCols = MOBILE_MAX_COLS;
-                nextRows = BASE_ROWS + extraLevels;
+                nextRows = Math.min(MOBILE_MAX_ROWS, BASE_ROWS + extraLevels);
               }
               
               setCols(nextCols);
@@ -459,10 +554,28 @@ export default function Game() {
               setActiveCol(0);
               setMistakesInLevel(0);
               setStartRowSafeCol(null); // new pattern next level
-              startLevelTimer(LEVEL_SECONDS);
               
-              // Highlight first row on mobile for level start (after level completion)
-              if (isMobileRef.current) {
+              // Pattern reveal - show safe tiles for 0.5 seconds if enabled
+              if (showPatternReveal) {
+                setIsPatternRevealed(true);
+                setTimeout(() => {
+                  setIsPatternRevealed(false);
+                  startLevelTimer(LEVEL_SECONDS);
+                  // Re-enable keyboard input for the next level
+                  setIsLevelCompleting(false);
+                  // Reset immediate input blocking for the next level
+                  isInputBlockedRef.current = false;
+                }, 500);
+              } else {
+                startLevelTimer(LEVEL_SECONDS);
+                // Re-enable keyboard input for the next level
+                setIsLevelCompleting(false);
+                // Reset immediate input blocking for the next level
+                isInputBlockedRef.current = false;
+              }
+              
+              // Highlight first row on mobile for level start (after level completion, only when pattern reveal is disabled)
+              if (isMobileRef.current && !showPatternReveal) {
                 setIsFirstRowHighlighted(true);
                 // Flash the first row 3 times over 1.5 seconds
                 setTimeout(() => setIsFirstRowHighlighted(false), 500);
@@ -490,7 +603,7 @@ export default function Game() {
         // If on the first row, do nothing so the cursor stays where the player left it
       }, 320);
     }
-  }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked]);
+  }, [activeRow, activeCol, chooseEncouragement, chooseTimeCrunch, clearTimer, cols, currentLevel, generatePath, mistakesInLevel, playCorrectSound, playLevelCompleteMelody, playWrongSound, remainingSeconds, resetLevelSamePattern, safePath, startLevelTimer, inputLocked, isLevelCompleting]);
 
   // Desktop keyboard controls (only active when not on mobile)
   useEffect(() => {
@@ -501,11 +614,13 @@ export default function Game() {
       if (key === 'ArrowLeft' || key === 'a' || key === 'A') moveLeft();
       else if (key === 'ArrowRight' || key === 'd' || key === 'D') moveRight();
       else if (key === 'ArrowUp') moveUp();
-      else if (key === ' ' || key === 'Enter' || key === 'w' || key === 'W') selectCell();
+      else if ((key === ' ' || key === 'Enter' || key === 'w' || key === 'W') && !isLevelCompleting && !isInputBlockedRef.current) {
+        selectCell();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isMobile, moveLeft, moveRight, moveUp, selectCell]);
+  }, [isMobile, moveLeft, moveRight, moveUp, selectCell, isLevelCompleting]);
 
   const formatTime = (s: number) => {
     const mm = Math.floor(s / 60).toString().padStart(2, '0');
@@ -521,7 +636,7 @@ export default function Game() {
 
   // Optimized mobile touch handler - created once, not recreated on every render
   const handleMobileTouch = useCallback((rowIndex: number, colIndex: number) => {
-    if (!isMobile || inputLocked) return;
+    if (!isMobile || inputLocked || isLevelCompleting) return;
     
     // Only allow interaction with tiles on the active row
     if (rowIndex !== activeRow) return;
@@ -552,6 +667,11 @@ export default function Game() {
         setStatusText(`+${gained} pts${flawless ? ' (Flawless!)' : ''}`);
         clearTimer();
         playLevelCompleteMelody();
+        
+        // Block all input to prevent rapid touches/key presses ONLY when level is completed
+        isInputBlockedRef.current = true;
+        // Disable keyboard input during level completion
+        setIsLevelCompleting(true);
         
         // Flash green tiles logic
         const greenTiles: CelebrationCell[] = [];
@@ -591,11 +711,11 @@ export default function Game() {
               let nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
               let nextRows = BASE_ROWS;
               
-              // Mobile-specific grid expansion: after 4 columns, add rows instead
+              // Mobile-specific grid expansion: after 4 columns, add rows instead (capped at 5 rows)
               if (isMobileRef.current && nextCols > MOBILE_MAX_COLS) {
                 const extraLevels = nextCols - MOBILE_MAX_COLS;
                 nextCols = MOBILE_MAX_COLS;
-                nextRows = BASE_ROWS + extraLevels;
+                nextRows = Math.min(MOBILE_MAX_ROWS, BASE_ROWS + extraLevels);
               }
               
               setCols(nextCols);
@@ -606,10 +726,28 @@ export default function Game() {
               setActiveCol(0);
               setMistakesInLevel(0);
               setStartRowSafeCol(null);
-              startLevelTimer(LEVEL_SECONDS);
               
-              // Highlight first row on mobile for level start (after level completion)
-              if (isMobileRef.current) {
+              // Pattern reveal - show safe tiles for 0.5 seconds if enabled
+              if (showPatternReveal) {
+                setIsPatternRevealed(true);
+                setTimeout(() => {
+                  setIsPatternRevealed(false);
+                  startLevelTimer(LEVEL_SECONDS);
+                  // Re-enable keyboard input for the next level
+                  setIsLevelCompleting(false);
+                  // Reset immediate input blocking for the next level
+                  isInputBlockedRef.current = false;
+                }, 500);
+              } else {
+                startLevelTimer(LEVEL_SECONDS);
+                // Re-enable keyboard input for the next level
+                setIsLevelCompleting(false);
+                // Reset immediate input blocking for the next level
+                isInputBlockedRef.current = false;
+              }
+              
+              // Highlight first row on mobile for level start (after level completion, only when pattern reveal is disabled)
+              if (isMobileRef.current && !showPatternReveal) {
                 setIsFirstRowHighlighted(true);
                 // Flash the first row 3 times over 1.5 seconds
                 setTimeout(() => setIsFirstRowHighlighted(false), 500);
@@ -636,7 +774,7 @@ export default function Game() {
         }
       }, 320);
     }
-  }, [isMobile, inputLocked, activeRow, safePath, setStartRowSafeCol, playCorrectSound, setVisitedSafe, currentLevel, mistakesInLevel, chooseEncouragement, remainingSeconds, chooseTimeCrunch, setScore, setStatusText, clearTimer, playLevelCompleteMelody, cols, setCelebrationCells, setOverlayLines, setOverlayFlawless, setOverlayVisible, setCurrentLevel, setCols, setSafePath, setActiveRow, setActiveCol, setMistakesInLevel, startLevelTimer, playWrongSound, setWrongFlash, resetLevelSamePattern]);
+  }, [isMobile, inputLocked, isLevelCompleting, activeRow, safePath, setStartRowSafeCol, playCorrectSound, setVisitedSafe, currentLevel, mistakesInLevel, chooseEncouragement, remainingSeconds, chooseTimeCrunch, setScore, setStatusText, clearTimer, playLevelCompleteMelody, cols, setCelebrationCells, setOverlayLines, setOverlayFlawless, setOverlayVisible, setCurrentLevel, setCols, setSafePath, setActiveRow, setActiveCol, setMistakesInLevel, startLevelTimer, playWrongSound, setWrongFlash, resetLevelSamePattern]);
 
   const renderCell = (rowIndex: number, colIndex: number) => {
     const key = `${rowIndex}-${colIndex}`;
@@ -653,6 +791,8 @@ export default function Game() {
       isWrong ? 'wrong' : '',
       // First row highlighting for mobile (bottom row where player starts)
       isMobile && isFirstRowHighlighted && rowIndex === numRows - 1 ? 'first-row-highlight' : '',
+      // Pattern reveal - show safe tiles when enabled
+      isPatternRevealed && safePath.has(key) ? 'pattern-reveal' : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -694,13 +834,13 @@ export default function Game() {
 
   // Memoize the grid rows to prevent unnecessary re-renders
   const gridRows = useMemo(() => {
-    const rows = [];
+    const gridCells = [];
     for (let r = 0; r < numRows; r += 1) {
       for (let c = 0; c < cols; c += 1) {
-        rows.push(renderCell(r, c));
+        gridCells.push(renderCell(r, c));
       }
     }
-    return rows;
+    return gridCells;
   }, [renderCell, cols, numRows]);
 
   // Show loading screen until mobile detection is complete
@@ -739,6 +879,20 @@ export default function Game() {
 
       <p id="status" className="subtle">{statusText}</p>
       <p id="score" className="subtle">Score: {score}</p>
+      
+      {/* Pattern reveal toggle */}
+      <div className="pattern-reveal-toggle">
+        <label className="toggle-label">
+          <input
+            type="checkbox"
+            checked={showPatternReveal}
+            onChange={togglePatternReveal}
+            className="toggle-checkbox"
+          />
+          <span className="toggle-slider"></span>
+          <span className="toggle-text">Show Pattern at Start</span>
+        </label>
+      </div>
     </div>
   );
 }
