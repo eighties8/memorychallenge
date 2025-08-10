@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const ROWS = 5;
+const BASE_ROWS = 5;
 const BASE_COLS = 2;
 const LEVEL_SECONDS = 30;
+const MOBILE_MAX_COLS = 4; // Maximum columns for mobile before adding rows
 
 const ENCOURAGEMENTS_FLAWLESS = [
   "You're on a roll!",
@@ -52,7 +53,8 @@ type CelebrationCell = { row: number; col: number; color: string } | null;
 export default function Game() {
   const [currentLevel, setCurrentLevel] = useState(1);
   const [cols, setCols] = useState(BASE_COLS);
-  const [activeRow, setActiveRow] = useState(ROWS - 1);
+  const [numRows, setNumRows] = useState(BASE_ROWS);
+  const [activeRow, setActiveRow] = useState(BASE_ROWS - 1);
   const [activeCol, setActiveCol] = useState(0);
   const [safePath, setSafePath] = useState<Set<string>>(() => new Set());
   const [visitedSafe, setVisitedSafe] = useState<Set<string>>(() => new Set());
@@ -109,9 +111,9 @@ export default function Game() {
     [cols]
   );
 
-  const generatePath = useCallback((colsArg: number): Set<string> => {
+  const generatePath = useCallback((colsArg: number, rowsArg: number): Set<string> => {
     const next = new Set<string>();
-    for (let r = 0; r < ROWS; r += 1) {
+    for (let r = 0; r < rowsArg; r += 1) {
       const c = Math.floor(Math.random() * colsArg);
       next.add(`${r}-${c}`);
     }
@@ -161,14 +163,25 @@ export default function Game() {
   }, [clearTimer]);
 
   const startLevel = useCallback((newPattern = true) => {
-    const nextCols = BASE_COLS + Math.floor((currentLevel - 1) / 5);
+    let nextCols = BASE_COLS + Math.floor((currentLevel - 1) / 5);
+    let nextRows = BASE_ROWS;
+    
+    // Mobile-specific grid expansion: after 4 columns, add rows instead
+    if (isMobileRef.current && nextCols > MOBILE_MAX_COLS) {
+      const extraLevels = nextCols - MOBILE_MAX_COLS;
+      nextCols = MOBILE_MAX_COLS;
+      nextRows = BASE_ROWS + extraLevels;
+    }
+    
     setCols(nextCols);
+    setNumRows(nextRows);
+    
     if (newPattern) {
-      setSafePath(generatePath(nextCols));
+      setSafePath(generatePath(nextCols, nextRows));
       setVisitedSafe(new Set());
     }
     setCelebrationCells([]);
-    setActiveRow(ROWS - 1);
+    setActiveRow(nextRows - 1);
     setActiveCol(0);
     setMistakesInLevel(0);
     setStartRowSafeCol(null); // new pattern: forget previous start-row safe
@@ -323,12 +336,12 @@ export default function Game() {
   const inputLocked = overlayVisible || isTimePenalty;
 
   const bottomSafeLocked = useMemo(() => {
-    if (activeRow !== ROWS - 1) return false;
+    if (activeRow !== numRows - 1) return false;
     if (startRowSafeCol === null) return false;
     if (activeCol !== startRowSafeCol) return false;
-    const key = `${ROWS - 1}-${startRowSafeCol}`;
+    const key = `${numRows - 1}-${startRowSafeCol}`;
     return !visitedSafe.has(key);
-  }, [activeRow, activeCol, startRowSafeCol, visitedSafe]);
+  }, [activeRow, activeCol, startRowSafeCol, visitedSafe, numRows]);
 
   const moveLeft = useCallback(() => {
     if (inputLocked) return;
@@ -358,12 +371,12 @@ export default function Game() {
     setVisitedSafe(new Set());
     setWrongFlash(null);
     setCelebrationCells([]);
-    setActiveRow(ROWS - 1);
+    setActiveRow(numRows - 1);
     setActiveCol((prev) => (startRowSafeCol !== null ? startRowSafeCol : 0));
     // keep mistakesInLevel as-is (still same level)
     
 
-  }, [startRowSafeCol, isMobile]);
+  }, [startRowSafeCol, isMobile, numRows]);
 
   const selectCell = useCallback(() => {
     if (inputLocked) return;
@@ -372,7 +385,7 @@ export default function Game() {
 
     if (isSafe) {
       // If selecting the safe cell on the starting (bottom) row, remember its column for future resets
-      if (activeRow === ROWS - 1) {
+      if (activeRow === numRows - 1) {
         setStartRowSafeCol(activeCol);
       }
 
@@ -395,7 +408,7 @@ export default function Game() {
         playLevelCompleteMelody();
         // Flash green tiles on/off for 2 seconds, then proceed
         const greenTiles: CelebrationCell[] = [];
-        for (let r = 0; r < ROWS; r++) {
+        for (let r = 0; r < numRows; r++) {
           for (let c = 0; c < cols; c++) {
             const k = `${r}-${c}`;
             if (safePath.has(k)) {
@@ -428,15 +441,34 @@ export default function Game() {
               setOverlayVisible(false);
               setStatusText('');
               setCurrentLevel(nextLevel);
-              const nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
+              let nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
+              let nextRows = BASE_ROWS;
+              
+              // Mobile-specific grid expansion: after 4 columns, add rows instead
+              if (isMobileRef.current && nextCols > MOBILE_MAX_COLS) {
+                const extraLevels = nextCols - MOBILE_MAX_COLS;
+                nextCols = MOBILE_MAX_COLS;
+                nextRows = BASE_ROWS + extraLevels;
+              }
+              
               setCols(nextCols);
-              setSafePath(generatePath(nextCols));
+              setNumRows(nextRows);
+              setSafePath(generatePath(nextCols, nextRows));
               setVisitedSafe(new Set());
-              setActiveRow(ROWS - 1);
+              setActiveRow(nextRows - 1);
               setActiveCol(0);
               setMistakesInLevel(0);
               setStartRowSafeCol(null); // new pattern next level
               startLevelTimer(LEVEL_SECONDS);
+              
+              // Highlight first row on mobile for level start (after level completion)
+              if (isMobileRef.current) {
+                setIsFirstRowHighlighted(true);
+                // Flash the first row 3 times over 1.5 seconds
+                setTimeout(() => setIsFirstRowHighlighted(false), 500);
+                setTimeout(() => setIsFirstRowHighlighted(true), 1000);
+                setTimeout(() => setIsFirstRowHighlighted(false), 1500);
+              }
             }, 1100);
           }
         }, intervalMs);
@@ -451,7 +483,7 @@ export default function Game() {
       setIsFirstRowHighlighted(false);
       setTimeout(() => setWrongFlash(null), 300);
       setTimeout(() => {
-        if (activeRow !== ROWS - 1) {
+        if (activeRow !== numRows - 1) {
           // For rows above the first, reset to the start of the same pattern
           resetLevelSamePattern();
         }
@@ -500,7 +532,7 @@ export default function Game() {
     
     if (isSafe) {
       // If selecting the safe cell on the starting (bottom) row, remember its column for future resets
-      if (rowIndex === ROWS - 1) {
+      if (rowIndex === numRows - 1) {
         setStartRowSafeCol(colIndex);
       }
       
@@ -523,7 +555,7 @@ export default function Game() {
         
         // Flash green tiles logic
         const greenTiles: CelebrationCell[] = [];
-        for (let r = 0; r < ROWS; r++) {
+        for (let r = 0; r < numRows; r++) {
           for (let c = 0; c < cols; c++) {
             const k = `${r}-${c}`;
             if (safePath.has(k)) {
@@ -556,15 +588,34 @@ export default function Game() {
               setOverlayVisible(false);
               setStatusText('');
               setCurrentLevel(nextLevel);
-              const nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
+              let nextCols = BASE_COLS + Math.floor((nextLevel - 1) / 5);
+              let nextRows = BASE_ROWS;
+              
+              // Mobile-specific grid expansion: after 4 columns, add rows instead
+              if (isMobileRef.current && nextCols > MOBILE_MAX_COLS) {
+                const extraLevels = nextCols - MOBILE_MAX_COLS;
+                nextCols = MOBILE_MAX_COLS;
+                nextRows = BASE_ROWS + extraLevels;
+              }
+              
               setCols(nextCols);
-              setSafePath(generatePath(nextCols));
+              setNumRows(nextRows);
+              setSafePath(generatePath(nextCols, nextRows));
               setVisitedSafe(new Set());
-              setActiveRow(ROWS - 1);
+              setActiveRow(nextRows - 1);
               setActiveCol(0);
               setMistakesInLevel(0);
               setStartRowSafeCol(null);
               startLevelTimer(LEVEL_SECONDS);
+              
+              // Highlight first row on mobile for level start (after level completion)
+              if (isMobileRef.current) {
+                setIsFirstRowHighlighted(true);
+                // Flash the first row 3 times over 1.5 seconds
+                setTimeout(() => setIsFirstRowHighlighted(false), 500);
+                setTimeout(() => setIsFirstRowHighlighted(true), 1000);
+                setTimeout(() => setIsFirstRowHighlighted(false), 1500);
+              }
             }, 1100);
           }
         }, intervalMs);
@@ -580,7 +631,7 @@ export default function Game() {
       setIsFirstRowHighlighted(false);
       setTimeout(() => setWrongFlash(null), 300);
       setTimeout(() => {
-        if (rowIndex !== ROWS - 1) {
+        if (rowIndex !== numRows - 1) {
           resetLevelSamePattern();
         }
       }, 320);
@@ -601,7 +652,7 @@ export default function Game() {
       isVisitedSafe ? 'safe' : '',
       isWrong ? 'wrong' : '',
       // First row highlighting for mobile (bottom row where player starts)
-      isMobile && isFirstRowHighlighted && rowIndex === ROWS - 1 ? 'first-row-highlight' : '',
+      isMobile && isFirstRowHighlighted && rowIndex === numRows - 1 ? 'first-row-highlight' : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -642,15 +693,15 @@ export default function Game() {
   };
 
   // Memoize the grid rows to prevent unnecessary re-renders
-  const rows = useMemo(() => {
-    const gridRows = [];
-    for (let r = 0; r < ROWS; r += 1) {
+  const gridRows = useMemo(() => {
+    const rows = [];
+    for (let r = 0; r < numRows; r += 1) {
       for (let c = 0; c < cols; c += 1) {
-        gridRows.push(renderCell(r, c));
+        rows.push(renderCell(r, c));
       }
     }
-    return gridRows;
-  }, [renderCell, cols]);
+    return rows;
+  }, [renderCell, cols, numRows]);
 
   // Show loading screen until mobile detection is complete
   if (!isMobileDetected) {
@@ -681,7 +732,7 @@ export default function Game() {
       <div id="play-area">
         <div className={`timer-box ${timerClass} ${isTimerFlashing ? 'flash' : ''}`} aria-label="time left">{formatTime(remainingSeconds)}</div>
         <div id="grid" style={gridTemplateColumnsStyle}>
-          {rows}
+          {gridRows}
         </div>
         <div className={`timer-box ${timerClass} ${isTimerFlashing ? 'flash' : ''}`} aria-label="time left">{formatTime(remainingSeconds)}</div>
       </div>
